@@ -1,0 +1,7 @@
+*pycache*
+Bilbiography/
+media/
+*.pickle
+logs_over_epochs
+SLIDES.pptx
+RAPPORT.pdf
