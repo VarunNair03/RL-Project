@@ -15,7 +15,7 @@ class FeatureExtractor(nn.Module):
         return x.view(x.size(0), -1)  # Flatten output
 
 class DQN(nn.Module):
-    def __init__(self, outputs):
+    def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
         self.classifier = nn.Sequential(
             nn.Linear(in_features=1280 + 81, out_features=1024), 
