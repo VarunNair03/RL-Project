@@ -7,8 +7,8 @@ class FeatureExtractor(nn.Module):
         super(FeatureExtractor, self).__init__()
         effnet = torchvision.models.efficientnet_b0(torchvision.models.EfficientNet_B0_Weights.DEFAULT)
         effnet.eval() 
-        self.features = effnet.features  # Remove classifier
-        # self.features = nn.Sequential(*list(effnet.children())[:-1])  # Remove classifier
+        # self.features = effnet.features  # Remove classifier
+        self.features = nn.Sequential(*list(effnet.children())[:-1])  # Remove classifier
     
     def forward(self, x):
         x = self.features(x)
