@@ -9,41 +9,41 @@ import random
 
 classes = ['cat', 'bird', 'motorbike', 'diningtable', 'train', 'tvmonitor', 'bus', 'horse', 'car', 'pottedplant', 'person', 'chair', 'boat', 'bottle', 'bicycle', 'dog', 'aeroplane', 'cow', 'sheep', 'sofa']
 
-def sort_class_extract(datasets):    
+from collections import defaultdict
+
+def sort_class_extract(datasets):
     """
-        Permet le tri par classes d'un jeu de données, parcours l'ensemble des objets d'une image et si il trouve un objet d'une classe
-        il l'ajoute au jeu de données de celle-ci. 
-        Entrée :
-            - Jeu de données. 
-        Sortie :
-            - Dictionnaire de jeu de données. ( clés : Classes, valeurs : Toutes les données de cette classe )
+    Sorts a dataset by class, grouping images and their corresponding object annotations.
+
+    Args:
+        datasets (list): A list of dataset elements, where each element is a tuple (image, target).
+
+    Returns:
+        dict: A dictionary where keys are class names and values are dictionaries mapping filenames to data.
     """
-    datasets_per_class = {}
-    for j in classes:
-        datasets_per_class[j] = {}
+    datasets_per_class = defaultdict(lambda: defaultdict(list))
 
     for dataset in datasets:
-        for i in dataset:
-            img, target = i
-            classe = target['annotation']['object'][0]["name"]
+        for img, target in dataset:
             filename = target['annotation']['filename']
-
-            org = {}
-            for j in classes:
-                org[j] = []
-                org[j].append(img)
-            for i in range(len(target['annotation']['object'])):
-                classe = target['annotation']['object'][i]["name"]
-                org[classe].append(  [   target['annotation']['object'][i]["bndbox"], target['annotation']['size']   ]  )
+            objects = target['annotation']['object']
             
-            for j in classes:
-                if len( org[j] ) > 1:
-                    try:
-                        datasets_per_class[j][filename].append(org[j])
-                    except KeyError:
-                        datasets_per_class[j][filename] = []
-                        datasets_per_class[j][filename].append(org[j])       
+            # Initialize organized data structure for this image
+            org = defaultdict(list)
+            org.update({j: [img] for j in classes})  # Store image in all classes initially
+            
+            # Populate bounding box data per class
+            for obj in objects:
+                class_name = obj["name"]
+                org[class_name].append([obj["bndbox"], target['annotation']['size']])
+            
+            # Add to the main dictionary only if class has more than just the image
+            for class_name, data in org.items():
+                if len(data) > 1:  # Ensure there is annotation data
+                    datasets_per_class[class_name][filename].append(data)
+
     return datasets_per_class
+
 
 
 def show_new_bdbox(image, labels, color='r', count=0):

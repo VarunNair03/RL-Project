@@ -86,7 +86,7 @@ class Agent():
 
 
 
-    def intersection_over_union(self, box1, box2):
+    def intersection_over_union(self, box1, box2, epsilon=1e-8):
         """
             Calcul de la mesure d'intersection/union
             Entrée :
@@ -107,7 +107,7 @@ class Agent():
         box2_area = (x22 - x12) * (y22 - y12)
         union_area = box1_area + box2_area - inter_area
 
-        iou = inter_area / union_area
+        iou = inter_area / (union_area + epsilon)
         return iou
 
     def compute_reward(self, actual_state, previous_state, ground_truth):
