@@ -2,120 +2,81 @@ import torchvision.transforms as transforms
 import torchvision
 from torch.utils.data import DataLoader
 
-batch_size = 32
-PATH="./datasets/"
+# Constants
+BATCH_SIZE = 32
+DATASET_PATH = "./datasets/"
 
-
-class CustomRotation(object):
-    """
-        Fournit une classe trnaform qui remet les images dans la bonne orientation ( car mal orientées orignellement dans le jeu de données )
-    """
+class CustomRotation:
+    """Rotates images to correct orientation."""
     def __call__(self, image):
-        return image.transpose(0, 2).transpose(0, 1)
+        return image.permute(2, 0, 1)  # Equivalent to image.transpose(0, 2).transpose(0, 1)
 
+def get_transform(train: bool):
+    """Prepares a transformation pipeline with normalization & resizing."""
+    return transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
 
+def make_image_transform(image_transform_params: dict, transform=None):
+    """Creates an image transformation pipeline based on input parameters."""
+    resize_modes = {
+        "shrink": transforms.Resize,
+        "crop": transforms.CenterCrop
+    }
+    resize_op = resize_modes.get(image_transform_params['image_mode'], None)
 
-def get_transform(train):
-    """
-        Permettant la préparation d'une fonction normalisation + le redimensionnement des images du jeu de données.
-    """
-    base_size = 520
-    crop_size = 480
+    if resize_op:
+        preprocess_image = resize_op((image_transform_params['output_image_size']['width'],
+                                      image_transform_params['output_image_size']['height']))
+        return transforms.Compose([preprocess_image, transform]) if transform else preprocess_image
+    return transform
 
-    min_size = int((0.5 if train else 1.0) * base_size)
-    max_size = int((2.0 if train else 1.0) * base_size)
-    transf = []
-    transf.append( transforms.ToTensor())
-    transf.append(transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                  std=[0.229, 0.224, 0.225]))
-    return transforms.Compose(transf)
-    
-def make_image_transform(image_transform_params: dict,
-                         transform: object):
-    resize_image = image_transform_params['image_mode']
-    if resize_image == 'none':
-        preprocess_image = None
-    elif resize_image == 'shrink':
-        preprocess_image = transforms.Resize((image_transform_params['output_image_size']['width'],
-                                              image_transform_params['output_image_size']['height']))
-    elif resize_image == 'crop':
-        preprocess_image = transforms.CenterCrop((image_transform_params['output_image_size']['width'],
-                                                  image_transform_params['output_image_size']['height']))
+def read_voc_dataset(download=True, year='2007', batch_size=BATCH_SIZE):
+    """Loads PASCAL VOC dataset with transformations and returns dataloaders."""
+    transform_pipeline = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor()
+    ])
 
-    if preprocess_image is not None:
-        if transform is not None:
-            image_transform = transforms.Compose([preprocess_image, transform])
-        else:
-            image_transform = preprocess_image
-    else:
-        image_transform = transform
-    return image_transform
+    train_dataset = torchvision.datasets.VOCDetection(DATASET_PATH, year=year, image_set='train',
+                                                      download=download, transform=transform_pipeline)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
+    val_dataset = torchvision.datasets.VOCDetection(DATASET_PATH, year=year, image_set='val',
+                                                    download=download, transform=transform_pipeline)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-def read_voc_dataset(download=True, year='2007'):
-    """
-        Fonction qui récupére les dataloaders de validation et de train du jeu de données PASCAL VOC selon l'année d'entrée
-
-    """
-    T = transforms.Compose([
-                            transforms.Resize((224, 224)),
-                            transforms.ToTensor(),
-                             #CustomRotation()
-                            ])
-    voc_data =  torchvision.datasets.VOCDetection(PATH, year=year, image_set='train', 
-                        download=download, transform=T)
-    train_loader = DataLoader(voc_data,shuffle=True)
-
-    voc_val =  torchvision.datasets.VOCDetection(PATH, year=year, image_set='val', 
-                        download=download, transform=T)
-    val_loader = DataLoader(voc_val,shuffle=False)
-
-    return voc_data, voc_val
+    return train_loader, val_loader
 
 def get_images_labels(dataloader):
-    """
-        Récupére séparemment les images et labels du dataloader
-    """
-    data_iter = iter(dataloader)
-    images, labels = next(data_iter)
-    return images, labels
+    """Extracts images and labels from a dataloader batch."""
+    return next(iter(dataloader))
 
-
-
-"""
-Fonctions permettant la récupération et lecture du jeu de données SB de Pytorch
-"""
-class NoisySBDataset():
-    def __init__(self, path, image_set="train", transforms = None, download=True):
-        super().__init__()
+class NoisySBDataset:
+    """Handles SB dataset loading with optional transforms."""
+    def __init__(self, path, image_set="train", transforms=None, download=True):
         self.transforms = transforms
-        self.dataset = torchvision.datasets.SBDataset(root=path,
-                                                      image_set=image_set,
-                                                      download=download)
+        self.dataset = torchvision.datasets.SBDataset(root=path, image_set=image_set, download=download)
+
     def __len__(self):
         return len(self.dataset)
 
-    def __getitem__(self, idx):  # a[x] for calling a.__getitem__(x)
+    def __getitem__(self, idx):
         img, truth = self.dataset[idx]
-        if self.transforms:
-            img = self.transforms(img)
-        return (img, truth)
+        return (self.transforms(img) if self.transforms else img, truth)
 
+def read_sbd_dataset(batch_size=BATCH_SIZE, download=True):
+    """Loads and normalizes SB dataset."""
+    transform_pipeline = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor()
+    ])
 
-def read_sbd_dataset(batch_size, download=True):
-    """
-        Lecture et normalisation du jeu de données SB.
-    """
-    T = transforms.Compose([
-                            transforms.Resize((224, 224)),
-                            transforms.ToTensor()
-                            ])
-    voc_data =  NoisySBDataset(PATH, image_set='train', 
-                        download=download, transforms=T)
-    train_loader = DataLoader(voc_data, batch_size=32,shuffle=False,  collate_fn=lambda x: x)
+    train_dataset = NoisySBDataset(DATASET_PATH, image_set='train', download=download, transforms=transform_pipeline)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
-    voc_val =  NoisySBDataset(PATH, image_set='val', 
-                        download=download, transforms=T)
-    val_loader = DataLoader(voc_val, batch_size=32,shuffle=False,  collate_fn=lambda x: x)
+    val_dataset = NoisySBDataset(DATASET_PATH, image_set='val', download=download, transforms=transform_pipeline)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     return train_loader, val_loader

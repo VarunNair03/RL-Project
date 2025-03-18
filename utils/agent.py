@@ -29,7 +29,7 @@ import glob
 from PIL import Image
 
 class Agent():
-    def __init__(self, classe, alpha=0.2, nu=3.0, threshold=0.5, num_episodes=15, load=False ):
+    def __init__(self, classe, alpha=0.2, nu=3.0, threshold=0.5, num_episodes=15, load=False):
         """
             Classe initialisant l'ensemble des paramètres de l'apprentissage, un agent est associé à une classe donnée du jeu de données.
         """
@@ -88,307 +88,317 @@ class Agent():
 
     def intersection_over_union(self, box1, box2, epsilon=1e-8):
         """
-            Calcul de la mesure d'intersection/union
-            Entrée :
-                Coordonnées [x_min, x_max, y_min, y_max] de la boite englobante de la vérité terrain et de la prédiction
-            Sortie :
-                Score d'intersection/union.
+        Computes the Intersection over Union (IoU) metric.
+        
+        Args:
+            box1 (list): Bounding box coordinates [x_min, x_max, y_min, y_max] for prediction.
+            box2 (list): Bounding box coordinates [x_min, x_max, y_min, y_max] for ground truth.
+            epsilon (float): Small value to prevent division by zero.
 
+        Returns:
+            float: IoU score.
         """
         x11, x21, y11, y21 = box1
         x12, x22, y12, y22 = box2
-        
-        yi1 = max(y11, y12)
-        xi1 = max(x11, x12)
-        yi2 = min(y21, y22)
-        xi2 = min(x21, x22)
-        inter_area = max(((xi2 - xi1) * (yi2 - yi1)), 0)
+
+        # Compute intersection
+        xi1, yi1 = max(x11, x12), max(y11, y12)
+        xi2, yi2 = min(x21, x22), min(y21, y22)
+        inter_area = max(0, xi2 - xi1) * max(0, yi2 - yi1)
+
+        # Compute union
         box1_area = (x21 - x11) * (y21 - y11)
         box2_area = (x22 - x12) * (y22 - y12)
         union_area = box1_area + box2_area - inter_area
 
-        iou = inter_area / (union_area + epsilon)
-        return iou
+        return inter_area / (union_area + epsilon)
+
 
     def compute_reward(self, actual_state, previous_state, ground_truth):
         """
-            Calcul la récompense à attribuer pour les états non-finaux selon les cas.
-            Entrée :
-                Etats actuels et précédents ( coordonnées de boite englobante )
-                Coordonnées de la vérité terrain
-            Sortie :
-                Récompense attribuée
+        Computes the reward for non-terminal states based on IoU difference.
+        
+        Args:
+            actual_state (list): Current bounding box [x_min, x_max, y_min, y_max].
+            previous_state (list): Previous bounding box [x_min, x_max, y_min, y_max].
+            ground_truth (list): Ground truth bounding box [x_min, x_max, y_min, y_max].
+
+        Returns:
+            int: Reward (-1 for decrease/no change, +1 for improvement).
         """
-        res = self.intersection_over_union(actual_state, ground_truth) - self.intersection_over_union(previous_state, ground_truth)
-        if res <= 0:
-            return -1
-        return 1
-      
+        iou_diff = self.intersection_over_union(actual_state, ground_truth) - \
+                self.intersection_over_union(previous_state, ground_truth)
+        return 1 if iou_diff > 0 else -1
+
+
     def rewrap(self, coord):
-        return min(max(coord,0), 224)
-      
+        """
+        Clamps coordinate values within valid image bounds [0, 224].
+        
+        Args:
+            coord (float): Coordinate value.
+
+        Returns:
+            float: Clamped coordinate.
+        """
+        return max(0, min(coord, 224))
+
+
     def compute_trigger_reward(self, actual_state, ground_truth):
         """
-            Calcul de la récompensée associée à un état final selon les cas.
-            Entrée :
-                Etat actuel et boite englobante de la vérité terrain
-            Sortie : 
-                Récompense attribuée
+        Computes the reward for terminal states when the trigger action is taken.
+        
+        Args:
+            actual_state (list): Current bounding box [x_min, x_max, y_min, y_max].
+            ground_truth (list): Ground truth bounding box [x_min, x_max, y_min, y_max].
+
+        Returns:
+            float: Reward (self.nu if IoU >= threshold, -self.nu otherwise).
         """
-        res = self.intersection_over_union(actual_state, ground_truth)
-        if res>=self.threshold:
-            return self.nu
-        return -1*self.nu
+        return self.nu if self.intersection_over_union(actual_state, ground_truth) >= self.threshold else -self.nu
 
     def get_best_next_action(self, actions, ground_truth):
         """
-            Implémentation de l'Agent expert qui selon l'état actuel et la vérité terrain va donner la meilleur action possible.
-            Entrée :
-                - Liste d'actions executées jusqu'à présent.
-                - Vérité terrain.
-            Sortie :
-                - Indice de la meilleure action possible.
+        Determines the best next action based on the current state and ground truth.
+        
+        Args:
+            actions (list): List of executed actions.
+            ground_truth (list): Ground truth bounding box.
 
+        Returns:
+            int: Index of the best possible action.
         """
-        max_reward = -99
-        best_action = -99
-        positive_actions = []
-        negative_actions = []
-        actual_equivalent_coord = self.calculate_position_box(actions)
-        for i in range(0, 9):
-            copy_actions = actions.copy()
-            copy_actions.append(i)
-            new_equivalent_coord = self.calculate_position_box(copy_actions)
-            if i!=0:
-                reward = self.compute_reward(new_equivalent_coord, actual_equivalent_coord, ground_truth)
-            else:
-                reward = self.compute_trigger_reward(new_equivalent_coord,  ground_truth)
-            
-            if reward>=0:
-                positive_actions.append(i)
-            else:
-                negative_actions.append(i)
-        if len(positive_actions)==0:
-            return random.choice(negative_actions)
-        return random.choice(positive_actions)
+        actual_box = self.calculate_position_box(actions)
+        positive_actions, negative_actions = [], []
+
+        for i in range(9):
+            new_actions = actions + [i]  # More efficient than list copy
+            new_box = self.calculate_position_box(new_actions)
+
+            reward = self.compute_reward(new_box, actual_box, ground_truth) if i != 0 else \
+                    self.compute_trigger_reward(new_box, ground_truth)
+
+            (positive_actions if reward >= 0 else negative_actions).append(i)
+
+        return random.choice(positive_actions) if positive_actions else random.choice(negative_actions)
 
 
     def select_action(self, state, actions, ground_truth):
         """
-            Selection de l'action dépendemment de l'état
-            Entrée :
-                - Etat actuel. 
-                - Vérité terrain.
-            Sortie :
-                - Soi l'action qu'aura choisi le modèle soi la meilleure action possible ( Le choix entre les deux se fait selon un jet aléatoire ).
+        Selects an action based on the current state.
+
+        Args:
+            state (torch.Tensor): Current state.
+            actions (list): List of executed actions.
+            ground_truth (list): Ground truth bounding box.
+
+        Returns:
+            int: Selected action.
         """
-        sample = random.random()
-        eps_threshold = self.EPS
         self.steps_done += 1
-        if sample > eps_threshold:
+
+        if random.random() > self.EPS:  # Exploitation: Choose the best action from policy network
             with torch.no_grad():
-                if use_cuda:
-                    inpu = Variable(state).cuda()
-                else:
-                    inpu = Variable(state)
-                qval = self.policy_net(inpu)
-                _, predicted = torch.max(qval.data,1)
-                action = predicted[0] # + 1
-                try:
-                  return action.cpu().numpy()[0]
-                except:
-                  return action.cpu().numpy()
-        else:
-            #return np.random.randint(0,9)   # Avant implémentation d'agent expert
-            return self.get_best_next_action(actions, ground_truth) # Appel à l'agent expert.
+                inpu = Variable(state).cuda() if use_cuda else Variable(state)
+                action = self.policy_net(inpu).argmax(dim=1).cpu().numpy()
+                return action.item() if isinstance(action, np.ndarray) else action
+        else:  # Exploration: Use expert agent for best next action
+            return self.get_best_next_action(actions, ground_truth)
+
 
     def select_action_model(self, state):
         """
-            Selection d'une action par le modèle selon l'état
-            Entrée :
-                - Etat actuel ( feature vector / sortie du réseau convolutionnel + historique des actions )
-            Sortie :
-                - Action séléctionnée.
+        Selects an action using the policy network based on the current state.
+
+        Args:
+            state (torch.Tensor): Current state (feature vector + action history).
+
+        Returns:
+            int: Selected action.
         """
         with torch.no_grad():
-                if use_cuda:
-                    inpu = Variable(state).cuda()
-                else:
-                    inpu = Variable(state)
-                qval = self.policy_net(inpu)
-                _, predicted = torch.max(qval.data,1)
-                #print("Predicted : "+str(qval.data))
-                action = predicted[0] # + 1
-                #print(action)
-                return action
+            state = state.cuda() if use_cuda else state
+            action = self.policy_net(state).argmax(dim=1).cpu().item()
+            return action
+
 
     def optimize_model(self):
         """
-        Fonction effectuant les étapes de mise à jour du réseau ( sampling des épisodes, calcul de loss, rétro propagation )
+        Updates the policy network by sampling memory, computing loss, and performing backpropagation.
         """
-        # Si la taille actuelle de notre mémoire est inférieure aux batchs de mémoires qu'on veut prendre en compte on n'effectue
-        # Pas encore d'optimization
         if len(self.memory) < self.BATCH_SIZE:
-            return
+            return  # Insufficient memory to train
 
-        # Extraction d'un echantillon aléatoire de la mémoire ( ou chaque éléments est constitué de (état, nouvel état, action, récompense) )
-        # Et ce pour éviter le biais occurant si on apprenait sur des états successifs
+        # Sample a batch of transitions from replay memory
         transitions = self.memory.sample(self.BATCH_SIZE)
         batch = Transition(*zip(*transitions))
-        
-        # Séparation des différents éléments contenus dans les différents echantillons
-        non_final_mask = torch.Tensor(tuple(map(lambda s: s is not None, batch.next_state))).bool()
-        next_states = [s for s in batch.next_state if s is not None]
-        non_final_next_states = Variable(torch.cat(next_states), 
-                                         volatile=True).type(Tensor)
-        
-        state_batch = Variable(torch.cat(batch.state)).type(Tensor)
-        if use_cuda:
-            state_batch = state_batch.cuda()
-        action_batch = Variable(torch.LongTensor(batch.action).view(-1,1)).type(LongTensor)
-        reward_batch = Variable(torch.FloatTensor(batch.reward).view(-1,1)).type(Tensor)
 
+        # Extract elements from the batch
+        state_batch = torch.cat(batch.state).to(device)
+        action_batch = torch.LongTensor(batch.action).view(-1, 1).to(device)
+        reward_batch = torch.FloatTensor(batch.reward).view(-1, 1).to(device)
 
-        # Passage des états par le Q-Network ( en calculate Q(s_t, a) ) et on récupére les actions sélectionnées
+        # Process next states
+        non_final_mask = torch.tensor([s is not None for s in batch.next_state], dtype=torch.bool, device=device)
+        non_final_next_states = torch.cat([s for s in batch.next_state if s is not None]).to(device)
+
+        # Compute Q(s_t, a) - model output for taken actions
         state_action_values = self.policy_net(state_batch).gather(1, action_batch)
 
-        # Calcul de V(s_{t+1}) pour les prochain états.
-        next_state_values = Variable(torch.zeros(self.BATCH_SIZE, 1).type(Tensor)) 
+        # Compute V(s_{t+1}) using the target network
+        next_state_values = torch.zeros(self.BATCH_SIZE, 1, device=device)
+        if non_final_next_states.size(0) > 0:  # Ensure non-empty next states
+            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1, keepdim=True)[0]
 
-        if use_cuda:
-            non_final_next_states = non_final_next_states.cuda()
-        
-        # Appel au second Q-Network ( celui de copie pour garantir la stabilité de l'apprentissage )
-        d = self.target_net(non_final_next_states) 
-        next_state_values[non_final_mask] = d.max(1)[0].view(-1,1)
-        next_state_values.volatile = False
-
-        # On calcule les valeurs de fonctions Q attendues ( en faisant appel aux récompenses attribuées )
+        # Compute expected Q values
         expected_state_action_values = (next_state_values * self.GAMMA) + reward_batch
 
-        # Calcul de la loss
-        loss = criterion(state_action_values, expected_state_action_values)
-
-        # Rétro-propagation
+        # Compute loss and backpropagate
+        loss = criterion(state_action_values, expected_state_action_values.detach())  # Detach to avoid gradients through target
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        
-    
-    def compose_state(self, image, dtype=FloatTensor):
-        """
-            Composition d'un état : Feature Vector + Historique des actions
-            Entrée :
-                - Image ( feature vector ). 
-            Sortie :
-                - Représentation d'état.
-        """
-        image_feature = self.get_features(image, dtype)
-        image_feature = image_feature.view(1,-1)
-        #print("image feature : "+str(image_feature.shape))
-        history_flatten = self.actions_history.view(1,-1).type(dtype)
-        state = torch.cat((image_feature, history_flatten), 1)
-        return state
-    
-    def get_features(self, image, dtype=FloatTensor):
-        """
-            Extraction du feature vector à partir de l'image.
-            Entrée :
-                - Image
-            Sortie :
-                - Feature vector
-        """
-        global transform
-        #image = transform(image)
-        image = image.view(1,*image.shape)
-        image = Variable(image).type(dtype)
-        if use_cuda:
-            image = image.cuda()
-        feature = self.feature_extractor(image)
-        #print("Feature shape : "+str(feature.shape))
-        return feature.data
 
     
+    def compose_state(self, image, dtype=torch.FloatTensor):
+        """
+        Composes the state representation by concatenating the feature vector and action history.
+
+        Args:
+            image (torch.Tensor): Input image.
+            dtype (torch.dtype): Data type for processing (default: FloatTensor).
+
+        Returns:
+            torch.Tensor: Concatenated state representation.
+        """
+        image_feature = self.get_features(image, dtype).view(1, -1)
+        history_flatten = self.actions_history.flatten().unsqueeze(0).to(dtype)
+        return torch.cat((image_feature, history_flatten), dim=1)
+
+
+    def get_features(self, image, dtype=torch.FloatTensor):
+        """
+        Extracts the feature vector from an image using the feature extractor.
+
+        Args:
+            image (torch.Tensor): Input image.
+            dtype (torch.dtype): Data type for processing (default: FloatTensor).
+
+        Returns:
+            torch.Tensor: Extracted feature vector.
+        """
+        image = image.unsqueeze(0).to(dtype)
+        if use_cuda:
+            image = image.cuda()
+        with torch.no_grad():  # Avoids computing gradients for inference
+            return self.feature_extractor(image)
+
+
     def update_history(self, action):
         """
-            Fonction qui met à jour l'historique des actions en y ajoutant la dernière effectuée
-            Entrée :
-                - Dernière action effectuée
+        Updates the action history by shifting past actions and adding the latest action.
+
+        Args:
+            action (int): Index of the last executed action.
+
+        Returns:
+            torch.Tensor: Updated action history.
         """
-        action_vector = torch.zeros(9)
+        action_vector = torch.zeros(9, device=self.actions_history.device)
         action_vector[action] = 1
-        size_history_vector = len(torch.nonzero(self.actions_history))
-        if size_history_vector < 9:
-            self.actions_history[size_history_vector][action] = 1
-        else:
-            for i in range(8,0,-1):
-                self.actions_history[i][:] = self.actions_history[i-1][:]
-            self.actions_history[0][:] = action_vector[:] 
+
+        # Shift action history
+        self.actions_history[1:] = self.actions_history[:-1].clone()
+        self.actions_history[0] = action_vector
         return self.actions_history
+
 
     def calculate_position_box(self, actions, xmin=0, xmax=224, ymin=0, ymax=224):
         """
-            Prends l'ensemble des actions depuis le début et en génére les coordonnées finales de la boite englobante.
-            Entrée :
-                - Ensemble des actions sélectionnées depuis le début.
-            Sortie :
-                - Coordonnées finales de la boite englobante.
-        """
-        # Calcul des alpha_h et alpha_w mentionnées dans le papier
-        alpha_h = self.alpha * (  ymax - ymin )
-        alpha_w = self.alpha * (  xmax - xmin )
-        real_x_min, real_x_max, real_y_min, real_y_max = 0, 224, 0, 224
+        Computes the final bounding box coordinates based on a sequence of actions.
 
-        # Boucle sur l'ensemble des actions
-        for r in actions:
-            if r == 1: # Right
-                real_x_min += alpha_w
-                real_x_max += alpha_w
-            if r == 2: # Left
-                real_x_min -= alpha_w
-                real_x_max -= alpha_w
-            if r == 3: # Up 
-                real_y_min -= alpha_h
-                real_y_max -= alpha_h
-            if r == 4: # Down
-                real_y_min += alpha_h
-                real_y_max += alpha_h
-            if r == 5: # Bigger
-                real_y_min -= alpha_h
-                real_y_max += alpha_h
-                real_x_min -= alpha_w
-                real_x_max += alpha_w
-            if r == 6: # Smaller
-                real_y_min += alpha_h
-                real_y_max -= alpha_h
-                real_x_min += alpha_w
-                real_x_max -= alpha_w
-            if r == 7: # Fatter
-                real_y_min += alpha_h
-                real_y_max -= alpha_h
-            if r == 8: # Taller
-                real_x_min += alpha_w
-                real_x_max -= alpha_w
-        real_x_min, real_x_max, real_y_min, real_y_max = self.rewrap(real_x_min), self.rewrap(real_x_max), self.rewrap(real_y_min), self.rewrap(real_y_max)
-        return [real_x_min, real_x_max, real_y_min, real_y_max]
+        Args:
+            actions (list): List of selected actions from the beginning.
+            xmin (int): Minimum x-bound of the initial bounding box.
+            xmax (int): Maximum x-bound of the initial bounding box.
+            ymin (int): Minimum y-bound of the initial bounding box.
+            ymax (int): Maximum y-bound of the initial bounding box.
 
-    def get_max_bdbox(self, ground_truth_boxes, actual_coordinates ):
+        Returns:
+            list: Final bounding box coordinates [x_min, x_max, y_min, y_max].
         """
-            Récupére parmis les boites englobantes vérité terrain d'une image celle qui est la plus proche de notre état actuel.
-            Entrée :
-                - Boites englobantes des vérités terrain.
-                - Coordonnées actuelles de la boite englobante.
-            Sortie :
-                - Vérité terrain la plus proche.
+        # Compute step sizes
+        alpha_h = self.alpha * (ymax - ymin)
+        alpha_w = self.alpha * (xmax - xmin)
+
+        # Initialize bounding box coordinates
+        x_min, x_max, y_min, y_max = 0, 224, 0, 224
+
+        # Apply transformations based on actions
+        for action in actions:
+            if action == 1:  # Move Right
+                x_min += alpha_w
+                x_max += alpha_w
+            elif action == 2:  # Move Left
+                x_min -= alpha_w
+                x_max -= alpha_w
+            elif action == 3:  # Move Up
+                y_min -= alpha_h
+                y_max -= alpha_h
+            elif action == 4:  # Move Down
+                y_min += alpha_h
+                y_max += alpha_h
+            elif action == 5:  # Expand
+                x_min -= alpha_w
+                x_max += alpha_w
+                y_min -= alpha_h
+                y_max += alpha_h
+            elif action == 6:  # Shrink
+                x_min += alpha_w
+                x_max -= alpha_w
+                y_min += alpha_h
+                y_max -= alpha_h
+            elif action == 7:  # Make Fatter (reduce height)
+                y_min += alpha_h
+                y_max -= alpha_h
+            elif action == 8:  # Make Taller (reduce width)
+                x_min += alpha_w
+                x_max -= alpha_w
+
+        # Ensure bounding box remains within valid limits
+        x_min, x_max, y_min, y_max = (
+            self.rewrap(x_min), self.rewrap(x_max),
+            self.rewrap(y_min), self.rewrap(y_max)
+        )
+
+        return [x_min, x_max, y_min, y_max]
+
+
+    def get_max_bdbox(self, ground_truth_boxes, actual_coordinates):
         """
-        max_iou = False
-        max_gt = []
+        Finds the ground truth bounding box that has the highest IoU with the current state.
+
+        Args:
+            ground_truth_boxes (list): List of ground truth bounding boxes.
+            actual_coordinates (list): Current bounding box coordinates.
+
+        Returns:
+            list: Ground truth bounding box with the highest IoU.
+        """
+        if not ground_truth_boxes:
+            return []
+
+        max_iou = 0
+        best_gt = None
+
         for gt in ground_truth_boxes:
             iou = self.intersection_over_union(actual_coordinates, gt)
-            if max_iou == False or max_iou < iou:
+            if iou > max_iou:
                 max_iou = iou
-                max_gt = gt
-        return max_gt
+                best_gt = gt
+
+        return best_gt if best_gt is not None else []
+
 
     def predict_image(self, image, plot=False):
         """
