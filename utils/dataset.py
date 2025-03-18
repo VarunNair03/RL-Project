@@ -47,7 +47,8 @@ def read_voc_dataset(download=True, year='2007', batch_size=BATCH_SIZE):
                                                     download=download, transform=transform_pipeline)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-    return train_loader, val_loader
+    # return train_loader, val_loader
+    return train_dataset, val_dataset
 
 def get_images_labels(dataloader):
     """Extracts images and labels from a dataloader batch."""
