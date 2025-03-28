@@ -29,7 +29,7 @@ import glob
 from PIL import Image
 
 class Agent():
-    def __init__(self, classe, alpha=0.2, nu=3.0, threshold=0.5, num_episodes=15, load=False ):
+    def __init__(self, classe, alpha=0.2, nu=3.0, threshold=0.5, num_episodes=15, load=False, arch='resnet50'):
         """
             Classe initialisant l'ensemble des paramètres de l'apprentissage, un agent est associé à une classe donnée du jeu de données.
         """
@@ -42,13 +42,17 @@ class Agent():
         self.n_actions = 9
         self.classe = classe
 
-        self.feature_extractor = FeatureExtractor()
+        self.feature_extractor = FeatureExtractor(arch=arch)
+        
+        self.feature_dim = self.feature_extractor.get_feature_dim()
+        print(self.feature_dim)
+        
         if not load:
-            self.policy_net = DQN(screen_height, screen_width, self.n_actions)
+            self.policy_net = DQN(screen_height, screen_width, self.n_actions, self.feature_dim)
         else:
             self.policy_net = self.load_network()
             
-        self.target_net = DQN(screen_height, screen_width, self.n_actions)
+        self.target_net = DQN(screen_height, screen_width, self.n_actions, self.feature_dim)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
         self.feature_extractor.eval()
