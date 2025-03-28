@@ -39,9 +39,11 @@ class Agent():
         
         if not load:
             self.policy_net = DQN(screen_height, screen_width, self.n_actions, self.feature_dim)
+            self.policy_net = DQN(screen_height, screen_width, self.n_actions, self.feature_dim)
         else:
             self.policy_net = self.load_network()
             
+        self.target_net = DQN(screen_height, screen_width, self.n_actions, self.feature_dim)
         self.target_net = DQN(screen_height, screen_width, self.n_actions, self.feature_dim)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
@@ -80,8 +82,13 @@ class Agent():
 
         # print("Box1 : ",box1)
         # print("Box2 : ",box2)
-        x11, x21, y11, y21 = box1
-        x12, x22, y12, y22 = box2
+        try:
+            x11, x21, y11, y21 = box1
+            x12, x22, y12, y22 = box2
+        except Exception as e:
+            print("Error in box format: ", e)
+            print("Box1: ", box1)
+            print("Box2: ", box2)
         
         yi1 = max(y11, y12)
         xi1 = max(x11, x12)
