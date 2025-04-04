@@ -87,8 +87,7 @@ class Agent():
             x12, x22, y12, y22 = box2
         except Exception as e:
             print("Error in box format: ", e)
-            print("Box1: ", box1)
-            print("Box2: ", box2)
+            return 0.0
         
         yi1 = max(y11, y12)
         xi1 = max(x11, x12)
