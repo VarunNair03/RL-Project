@@ -206,7 +206,7 @@ class Agent():
         expected_state_action_values = (next_state_values * self.GAMMA) + reward_batch
 
         # Compute loss
-        loss = self.criterion(state_action_values, expected_state_action_values)
+        loss = criterion(state_action_values, expected_state_action_values)
 
         # Backpropagation
         self.optimizer.zero_grad()
