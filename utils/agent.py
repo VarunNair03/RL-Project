@@ -96,11 +96,11 @@ class Agent():
         return iou
 
     def compute_reward(self, actual_state, previous_state, ground_truth):
-        
+        if ground_truth is None:
+            return 0  # or -1, depending on how you want to penalize this
+
         res = self.intersection_over_union(actual_state, ground_truth) - self.intersection_over_union(previous_state, ground_truth)
-        if res <= 0:
-            return -1
-        return 1
+        return 1 if res > 0 else -1
       
     def rewrap(self, coord):
         return min(max(coord,0), 224)
@@ -297,6 +297,10 @@ class Agent():
         return [real_x_min, real_x_max, real_y_min, real_y_max]
 
     def get_max_bdbox(self, ground_truth_boxes, actual_coordinates ):
+        
+        if not ground_truth_boxes:
+            return None
+        
         max_iou = -1.0  # Initialize IoU with a very low value
         max_gt = None   # Set to None instead of an empty list
 
