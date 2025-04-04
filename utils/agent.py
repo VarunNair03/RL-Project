@@ -12,7 +12,7 @@ import torch.optim as optim
 from PIL import Image
 
 from tqdm.notebook import tqdm
-from config import SAVE_MODEL_PATH, use_cuda, transform, Tensor, LongTensor, criterion, FloatTensor, ByteTensor
+from config import SAVE_MODEL_PATH, use_cuda, transform, criterion
 
 
 
