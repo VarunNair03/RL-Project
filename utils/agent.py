@@ -78,6 +78,8 @@ class Agent():
 
     def intersection_over_union(self, box1, box2, epsilon=1e-8):
 
+        print("Box1 : ",box1)
+        print("Box2 : ",box2)
         x11, x21, y11, y21 = box1
         x12, x22, y12, y22 = box2
         
@@ -115,7 +117,9 @@ class Agent():
         negative_actions = []
         actual_equivalent_coord = self.calculate_position_box(actions)
         for i in range(0, 9):
-            copy_actions = actions + [i]  # More efficient than copy().append(i)
+            # copy_actions = actions + [i]  # More efficient than copy().append(i)
+            copy_actions = actions.copy()
+            copy_actions.append(i)
             new_equivalent_coord = self.calculate_position_box(copy_actions)
             if i!=0:
                 reward = self.compute_reward(new_equivalent_coord, actual_equivalent_coord, ground_truth)
