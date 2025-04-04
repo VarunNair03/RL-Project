@@ -216,7 +216,7 @@ class Agent():
         self.optimizer.step()
         
     
-    def compose_state(self, image, dtype=FloatTensor):
+    def compose_state(self, image, dtype=type.FloatTensor):
         image_feature = self.get_features(image, dtype)
         image_feature = image_feature.view(1,-1)
         #print("image feature : "+str(image_feature.shape))
