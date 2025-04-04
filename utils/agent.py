@@ -9,12 +9,10 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim as optim
-from torch.autograd import Variable
-from itertools import count
 from PIL import Image
 
 from tqdm.notebook import tqdm
-from config import SAVE_MODEL_PATH, use_cuda, transform, Tensor, LongTensor, criterion, FloatTensor, ByteTensor, transforms
+from config import SAVE_MODEL_PATH, use_cuda, transform, Tensor, LongTensor, criterion, FloatTensor, ByteTensor
 
 
 
@@ -216,7 +214,7 @@ class Agent():
         self.optimizer.step()
         
     
-    def compose_state(self, image, dtype=type.FloatTensor):
+    def compose_state(self, image, dtype=torch.FloatTensor):
         image_feature = self.get_features(image, dtype)
         image_feature = image_feature.view(1,-1)
         #print("image feature : "+str(image_feature.shape))
@@ -229,7 +227,7 @@ class Agent():
         if isinstance(image, np.ndarray):
             image = torch.tensor(image, dtype=dtype)
         elif isinstance(image, Image.Image):  # If it's a PIL image
-            image = transforms.ToTensor()(image)
+            image = transform.ToTensor()(image)
 
         image = image.unsqueeze(0)  # Add batch dimension
 
