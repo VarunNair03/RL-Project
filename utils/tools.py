@@ -172,25 +172,22 @@ def eval_stats_at_threshold( all_bdbox, all_gt, thresholds=[0.1, 0.2, 0.3, 0.4, 
     return stats_df
 
 
-"""
-    Structure de données pour stocker les éléments de mémoire pour l'algorithme de Replay Memory.
-"""
-class ReplayMemory(object):
-    
+
+class ReplayMemory:
     def __init__(self, capacity):
         self.capacity = capacity
-        self.memory = []
+        self.memory = [None] * capacity  # Preallocate a fixed-size list
         self.position = 0
 
     def push(self, *args):
-        """Saves a transition."""
-        if len(self.memory) < self.capacity:
-            self.memory.append(None)
-        self.memory[self.position] = Transition(*args)
-        self.position = (self.position + 1) % self.capacity
-        self.memory[self.position] = Transition(*args)  # Ensure Transition is explicitly imported or defined
+        """Saves a transition using a circular buffer."""
+        self.memory[self.position] = Transition(*args)  # Store at current position
+        self.position = (self.position + 1) % self.capacity  # Move to next position
+
     def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
+        """Randomly samples a batch from memory."""
+        return random.sample([m for m in self.memory if m is not None], batch_size)
 
     def __len__(self):
-        return len(self.memory)
+        """Returns the current size of the memory buffer."""
+        return sum(m is not None for m in self.memory)
