@@ -1,15 +1,13 @@
 
-import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
-from config import *
 import random
+from collections import defaultdict
+from config import Transition  # Explicitly import Transition or define it if missing
 
 classes = ['cat', 'bird', 'motorbike', 'diningtable', 'train', 'tvmonitor', 'bus', 'horse', 'car', 'pottedplant', 'person', 'chair', 'boat', 'bottle', 'bicycle', 'dog', 'aeroplane', 'cow', 'sheep', 'sofa']
-
-from collections import defaultdict
 
 def sort_class_extract(datasets):
     """
@@ -53,7 +51,7 @@ def show_new_bdbox(image, labels, color='r', count=0):
     xmin, xmax, ymin, ymax = labels[0],labels[1],labels[2],labels[3]
     fig,ax = plt.subplots(1)
     ax.imshow(image.transpose(0, 2).transpose(0, 1))
-
+    _, ax = plt.subplots(1)  # Replace unused variable 'fig' with '_'
     width = xmax-xmin
     height = ymax-ymin
     rect = patches.Rectangle((xmin,ymin),width,height,linewidth=3,edgecolor=color,facecolor='none')
@@ -190,7 +188,7 @@ class ReplayMemory(object):
             self.memory.append(None)
         self.memory[self.position] = Transition(*args)
         self.position = (self.position + 1) % self.capacity
-
+        self.memory[self.position] = Transition(*args)  # Ensure Transition is explicitly imported or defined
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
 

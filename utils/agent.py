@@ -1,38 +1,25 @@
-#import torchvision.datasets.SBDataset as sbd
-from utils.models import *
-from utils.tools import *
+from utils.models import DQN, FeatureExtractor
+from utils.tools import ReplayMemory, Transition, eval_stats_at_threshold, extract, show_new_bdbox
 import os
 import imageio
-import math
 import random
 import numpy as np
 
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-import torch.nn.parallel
-import torch.backends.cudnn as cudnn
-import torch.optim
-import torch.utils.data
-import torchvision.datasets as datasets
-
+import torch.optim as optim
+from torch.autograd import Variable
 from itertools import count
 from PIL import Image
-import torch.optim as optim
-import cv2 as cv
-from torch.autograd import Variable
 
 from tqdm.notebook import tqdm
-from config import *
+from config import SAVE_MODEL_PATH, use_cuda, transform, Tensor, LongTensor, criterion, FloatTensor, ByteTensor, transforms
 
-import glob
-from PIL import Image
+
 
 class Agent():
     def __init__(self, classe, alpha=0.2, nu=3.0, threshold=0.5, num_episodes=15, load=False, arch='resnet50'):
-        """
-            Classe initialisant l'ensemble des paramètres de l'apprentissage, un agent est associé à une classe donnée du jeu de données.
-        """
         self.BATCH_SIZE = 100
         self.GAMMA = 0.900
         self.EPS = 1
@@ -47,6 +34,11 @@ class Agent():
         self.feature_dim = self.feature_extractor.get_feature_dim()
         print(self.feature_dim)
         
+        if use_cuda:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = torch.device("cpu")
+        
         if not load:
             self.policy_net = DQN(screen_height, screen_width, self.n_actions, self.feature_dim)
         else:
@@ -56,10 +48,10 @@ class Agent():
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
         self.feature_extractor.eval()
-        if use_cuda:
-          self.feature_extractor = self.feature_extractor.cuda()
-          self.target_net = self.target_net.cuda()
-          self.policy_net = self.policy_net.cuda()
+        
+        self.feature_extractor = self.feature_extractor.to(self.device)
+        self.target_net = self.target_net.to(self.device)
+        self.policy_net = self.policy_net.to(self.device)
         
         self.optimizer = optim.Adam(self.policy_net.parameters(),lr=1e-6)
         self.memory = ReplayMemory(10000)
@@ -74,16 +66,12 @@ class Agent():
         self.actions_history += [[100]*9]*20
 
     def save_network(self):
-        """
-            Fonction de sauvegarde du Q-Network
-        """
+
         torch.save(self.policy_net, self.save_path+"_"+self.classe)
         print('Saved')
 
     def load_network(self):
-        """
-            Récupération d'un Q-Network existant
-        """
+
         if not use_cuda:
             return torch.load(self.save_path+"_"+self.classe, map_location=torch.device('cpu'))
         return torch.load(self.save_path+"_"+self.classe)
@@ -91,14 +79,7 @@ class Agent():
 
 
     def intersection_over_union(self, box1, box2, epsilon=1e-8):
-        """
-            Calcul de la mesure d'intersection/union
-            Entrée :
-                Coordonnées [x_min, x_max, y_min, y_max] de la boite englobante de la vérité terrain et de la prédiction
-            Sortie :
-                Score d'intersection/union.
 
-        """
         x11, x21, y11, y21 = box1
         x12, x22, y12, y22 = box2
         
@@ -115,14 +96,7 @@ class Agent():
         return iou
 
     def compute_reward(self, actual_state, previous_state, ground_truth):
-        """
-            Calcul la récompense à attribuer pour les états non-finaux selon les cas.
-            Entrée :
-                Etats actuels et précédents ( coordonnées de boite englobante )
-                Coordonnées de la vérité terrain
-            Sortie :
-                Récompense attribuée
-        """
+        
         res = self.intersection_over_union(actual_state, ground_truth) - self.intersection_over_union(previous_state, ground_truth)
         if res <= 0:
             return -1
@@ -132,36 +106,18 @@ class Agent():
         return min(max(coord,0), 224)
       
     def compute_trigger_reward(self, actual_state, ground_truth):
-        """
-            Calcul de la récompensée associée à un état final selon les cas.
-            Entrée :
-                Etat actuel et boite englobante de la vérité terrain
-            Sortie : 
-                Récompense attribuée
-        """
         res = self.intersection_over_union(actual_state, ground_truth)
         if res>=self.threshold:
             return self.nu
         return -1*self.nu
 
     def get_best_next_action(self, actions, ground_truth):
-        """
-            Implémentation de l'Agent expert qui selon l'état actuel et la vérité terrain va donner la meilleur action possible.
-            Entrée :
-                - Liste d'actions executées jusqu'à présent.
-                - Vérité terrain.
-            Sortie :
-                - Indice de la meilleure action possible.
-
-        """
-        max_reward = -99
-        best_action = -99
+        
         positive_actions = []
         negative_actions = []
         actual_equivalent_coord = self.calculate_position_box(actions)
         for i in range(0, 9):
-            copy_actions = actions.copy()
-            copy_actions.append(i)
+            copy_actions = actions + [i]  # More efficient than copy().append(i)
             new_equivalent_coord = self.calculate_position_box(copy_actions)
             if i!=0:
                 reward = self.compute_reward(new_equivalent_coord, actual_equivalent_coord, ground_truth)
@@ -178,23 +134,13 @@ class Agent():
 
 
     def select_action(self, state, actions, ground_truth):
-        """
-            Selection de l'action dépendemment de l'état
-            Entrée :
-                - Etat actuel. 
-                - Vérité terrain.
-            Sortie :
-                - Soi l'action qu'aura choisi le modèle soi la meilleure action possible ( Le choix entre les deux se fait selon un jet aléatoire ).
-        """
+
         sample = random.random()
         eps_threshold = self.EPS
         self.steps_done += 1
         if sample > eps_threshold:
             with torch.no_grad():
-                if use_cuda:
-                    inpu = Variable(state).cuda()
-                else:
-                    inpu = Variable(state)
+                inpu = state.to(self.device)
                 qval = self.policy_net(inpu)
                 _, predicted = torch.max(qval.data,1)
                 action = predicted[0] # + 1
@@ -203,22 +149,14 @@ class Agent():
                 except:
                   return action.cpu().numpy()
         else:
-            #return np.random.randint(0,9)   # Avant implémentation d'agent expert
-            return self.get_best_next_action(actions, ground_truth) # Appel à l'agent expert.
+            return self.get_best_next_action(actions, ground_truth) 
 
     def select_action_model(self, state):
-        """
-            Selection d'une action par le modèle selon l'état
-            Entrée :
-                - Etat actuel ( feature vector / sortie du réseau convolutionnel + historique des actions )
-            Sortie :
-                - Action séléctionnée.
-        """
         with torch.no_grad():
                 if use_cuda:
-                    inpu = Variable(state).cuda()
+                    inpu = state.cuda()
                 else:
-                    inpu = Variable(state)
+                    inpu = state
                 qval = self.policy_net(inpu)
                 _, predicted = torch.max(qval.data,1)
                 #print("Predicted : "+str(qval.data))
@@ -226,99 +164,86 @@ class Agent():
                 #print(action)
                 return action
 
+        
     def optimize_model(self):
         """
-        Fonction effectuant les étapes de mise à jour du réseau ( sampling des épisodes, calcul de loss, rétro propagation )
+        Performs a single optimization step for the DQN.
         """
-        # Si la taille actuelle de notre mémoire est inférieure aux batchs de mémoires qu'on veut prendre en compte on n'effectue
-        # Pas encore d'optimization
+        # Return if there are not enough samples in memory
         if len(self.memory) < self.BATCH_SIZE:
             return
 
-        # Extraction d'un echantillon aléatoire de la mémoire ( ou chaque éléments est constitué de (état, nouvel état, action, récompense) )
-        # Et ce pour éviter le biais occurant si on apprenait sur des états successifs
+        # Sample random batch of transitions from memory
         transitions = self.memory.sample(self.BATCH_SIZE)
-        batch = Transition(*zip(*transitions))
-        
-        # Séparation des différents éléments contenus dans les différents echantillons
-        non_final_mask = torch.Tensor(tuple(map(lambda s: s is not None, batch.next_state))).bool()
+        batch = Transition(*zip(*transitions))  # Unpack batch
+
+        # Mask of non-final states
+        non_final_mask = torch.tensor([s is not None for s in batch.next_state], dtype=torch.bool, device=self.device)
+
+        # Extract next states and stack them
         next_states = [s for s in batch.next_state if s is not None]
-        non_final_next_states = Variable(torch.cat(next_states), 
-                                         volatile=True).type(Tensor)
-        
-        state_batch = Variable(torch.cat(batch.state)).type(Tensor)
-        if use_cuda:
-            state_batch = state_batch.cuda()
-        action_batch = Variable(torch.LongTensor(batch.action).view(-1,1)).type(LongTensor)
-        reward_batch = Variable(torch.FloatTensor(batch.reward).view(-1,1)).type(Tensor)
+        if next_states:
+            with torch.no_grad():
+                non_final_next_states = torch.cat(next_states).to(self.device)
+        else:
+            non_final_next_states = None  # No valid next states
 
+        # Convert batch data to tensors
+        state_batch = torch.cat(batch.state).to(self.device)
+        action_batch = torch.tensor(batch.action, dtype=torch.long, device=self.device).view(-1, 1)
+        reward_batch = torch.tensor(batch.reward, dtype=torch.float, device=self.device).view(-1, 1)
 
-        # Passage des états par le Q-Network ( en calculate Q(s_t, a) ) et on récupére les actions sélectionnées
+        # Compute Q(s_t, a) - get the Q-values for the taken actions
         state_action_values = self.policy_net(state_batch).gather(1, action_batch)
 
-        # Calcul de V(s_{t+1}) pour les prochain états.
-        next_state_values = Variable(torch.zeros(self.BATCH_SIZE, 1).type(Tensor)) 
+        # Compute V(s_{t+1}) for non-final next states
+        next_state_values = torch.zeros(self.BATCH_SIZE, 1, device=self.device)
 
-        if use_cuda:
-            non_final_next_states = non_final_next_states.cuda()
-        
-        # Appel au second Q-Network ( celui de copie pour garantir la stabilité de l'apprentissage )
-        d = self.target_net(non_final_next_states) 
-        next_state_values[non_final_mask] = d.max(1)[0].view(-1,1)
-        next_state_values.volatile = False
+        if non_final_next_states is not None:
+            with torch.no_grad():
+                d = self.target_net(non_final_next_states)
+                next_state_values[non_final_mask] = d.max(1)[0].view(-1, 1)
 
-        # On calcule les valeurs de fonctions Q attendues ( en faisant appel aux récompenses attribuées )
+        # Compute expected Q values
         expected_state_action_values = (next_state_values * self.GAMMA) + reward_batch
 
-        # Calcul de la loss
-        loss = criterion(state_action_values, expected_state_action_values)
+        # Compute loss
+        loss = self.criterion(state_action_values, expected_state_action_values)
 
-        # Rétro-propagation
+        # Backpropagation
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         
     
     def compose_state(self, image, dtype=FloatTensor):
-        """
-            Composition d'un état : Feature Vector + Historique des actions
-            Entrée :
-                - Image ( feature vector ). 
-            Sortie :
-                - Représentation d'état.
-        """
         image_feature = self.get_features(image, dtype)
         image_feature = image_feature.view(1,-1)
         #print("image feature : "+str(image_feature.shape))
-        history_flatten = self.actions_history.view(1,-1).type(dtype)
+        history_flatten = torch.tensor(self.actions_history, dtype=dtype, device=self.device).view(1, -1)
         state = torch.cat((image_feature, history_flatten), 1)
         return state
     
-    def get_features(self, image, dtype=FloatTensor):
-        """
-            Extraction du feature vector à partir de l'image.
-            Entrée :
-                - Image
-            Sortie :
-                - Feature vector
-        """
-        global transform
-        #image = transform(image)
-        image = image.view(1,*image.shape)
-        image = Variable(image).type(dtype)
-        if use_cuda:
-            image = image.cuda()
-        feature = self.feature_extractor(image)
-        #print("Feature shape : "+str(feature.shape))
-        return feature.data
+    def get_features(self, image, dtype=torch.FloatTensor):
+        # Convert image to tensor if needed
+        if isinstance(image, np.ndarray):
+            image = torch.tensor(image, dtype=dtype)
+        elif isinstance(image, Image.Image):  # If it's a PIL image
+            image = transforms.ToTensor()(image)
+
+        image = image.unsqueeze(0)  # Add batch dimension
+
+        # Move image to the correct device
+        image = image.to(self.device)
+
+        # Extract features without tracking gradients
+        with torch.no_grad():
+            feature = self.feature_extractor(image)
+
+        return feature
 
     
     def update_history(self, action):
-        """
-            Fonction qui met à jour l'historique des actions en y ajoutant la dernière effectuée
-            Entrée :
-                - Dernière action effectuée
-        """
         action_vector = torch.zeros(9)
         action_vector[action] = 1
         size_history_vector = len(torch.nonzero(self.actions_history))
@@ -331,19 +256,12 @@ class Agent():
         return self.actions_history
 
     def calculate_position_box(self, actions, xmin=0, xmax=224, ymin=0, ymax=224):
-        """
-            Prends l'ensemble des actions depuis le début et en génére les coordonnées finales de la boite englobante.
-            Entrée :
-                - Ensemble des actions sélectionnées depuis le début.
-            Sortie :
-                - Coordonnées finales de la boite englobante.
-        """
-        # Calcul des alpha_h et alpha_w mentionnées dans le papier
+
+        
         alpha_h = self.alpha * (  ymax - ymin )
         alpha_w = self.alpha * (  xmax - xmin )
         real_x_min, real_x_max, real_y_min, real_y_max = 0, 224, 0, 224
 
-        # Boucle sur l'ensemble des actions
         for r in actions:
             if r == 1: # Right
                 real_x_min += alpha_w
@@ -377,38 +295,20 @@ class Agent():
         return [real_x_min, real_x_max, real_y_min, real_y_max]
 
     def get_max_bdbox(self, ground_truth_boxes, actual_coordinates ):
-        """
-            Récupére parmis les boites englobantes vérité terrain d'une image celle qui est la plus proche de notre état actuel.
-            Entrée :
-                - Boites englobantes des vérités terrain.
-                - Coordonnées actuelles de la boite englobante.
-            Sortie :
-                - Vérité terrain la plus proche.
-        """
-        max_iou = False
-        max_gt = []
+        max_iou = -1.0  # Initialize IoU with a very low value
+        max_gt = None   # Set to None instead of an empty list
+
         for gt in ground_truth_boxes:
             iou = self.intersection_over_union(actual_coordinates, gt)
-            if max_iou == False or max_iou < iou:
+            if iou > max_iou:
                 max_iou = iou
                 max_gt = gt
+
         return max_gt
 
     def predict_image(self, image, plot=False):
-        """
-            Prédit la boite englobante d'une image
-            Entrée :
-                - Image redimensionnée.
-            Sortie :
-                - Coordonnées boite englobante.
-        """
 
-        # Passage du Q-Network en mode évaluation
         self.policy_net.eval()
-        xmin = 0
-        xmax = 224
-        ymin = 0
-        ymax = 224
 
         done = False
         all_actions = []
@@ -419,7 +319,6 @@ class Agent():
 
         steps = 0
         
-        # Tant que le trigger n'est pas déclenché ou qu'on a pas atteint les 40 steps
         while not done:
             steps += 1
             action = self.select_action_model(state)
@@ -497,11 +396,7 @@ class Agent():
         return stats
 
     def train(self, train_loader):
-        """
-            Fonction d'entraînement du modèle.
-            Entrée :
-                - Jeu de données d'entraînement.
-        """
+
         xmin = 0.0
         xmax = 224.0
         ymin = 0.0
@@ -571,9 +466,7 @@ class Agent():
             print('Complete')
 
     def train_validate(self, train_loader, valid_loader):
-        """
-            Entraînement du modèle et à chaque épisode test de l'efficacité sur le jeu de test et sauvegarde des résultats dans un fichier de logs.
-        """
+
         op = open("logs_over_epochs", "w")
         op.write("NU = "+str(self.nu))
         op.write("ALPHA = "+str(self.alpha))

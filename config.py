@@ -1,11 +1,12 @@
-use_cuda = False
 import torch
 import torch.nn as nn
 from collections import namedtuple
 import torchvision.transforms as transforms
 
+use_cuda = False
+
 try:
-    if 'google.colab' in str(get_ipython()):
+    if 'get_ipython' in globals() and 'google.colab' in str(get_ipython()):
         from google.colab import drive
         drive.mount('/content/gdrive')
         LOAD = True
@@ -14,9 +15,8 @@ try:
         LOAD = False
         SAVE_MODEL_PATH = "./models/q_network"
 except NameError:
-        LOAD = False
-        SAVE_MODEL_PATH = "./models/q_network"
-
+    LOAD = False
+    SAVE_MODEL_PATH = "./models/q_network"
 
 use_cuda = True
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
