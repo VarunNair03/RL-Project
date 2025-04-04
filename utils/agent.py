@@ -214,7 +214,7 @@ class Agent():
         self.optimizer.step()
         
     
-    def compose_state(self, image, dtype=torch.FloatTensor):
+    def compose_state(self, image, dtype=torch.float32):
         image_feature = self.get_features(image, dtype)
         image_feature = image_feature.view(1,-1)
         #print("image feature : "+str(image_feature.shape))
@@ -222,7 +222,7 @@ class Agent():
         state = torch.cat((image_feature, history_flatten), 1)
         return state
     
-    def get_features(self, image, dtype=torch.FloatTensor):
+    def get_features(self, image, dtype=torch.float32):
         # Convert image to tensor if needed
         if isinstance(image, np.ndarray):
             image = torch.tensor(image, dtype=dtype)
