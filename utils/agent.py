@@ -78,8 +78,8 @@ class Agent():
 
     def intersection_over_union(self, box1, box2, epsilon=1e-8):
 
-        print("Box1 : ",box1)
-        print("Box2 : ",box2)
+        # print("Box1 : ",box1)
+        # print("Box2 : ",box2)
         x11, x21, y11, y21 = box1
         x12, x22, y12, y22 = box2
         
